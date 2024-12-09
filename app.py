@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 from heapq import heappop, heappush
+import os
 
 # Helper functions for A* algorithm
 def heuristic(a, b, graph):
@@ -53,23 +54,30 @@ def load_graph_from_csv(file):
         graph.setdefault(city1, []).append((city2, distance))
         graph.setdefault(city2, []).append((city1, distance))
     
-    return graph
+    return graph, df
 
 # Streamlit app
 def main():
     st.title("City Graph Manager")
 
-    # Initialize session state for graph
+    # Initialize session state for graph and file
     if 'graph' not in st.session_state:
         st.session_state.graph = {}
+    if 'uploaded_file_name' not in st.session_state:
+        st.session_state.uploaded_file_name = None
+    if 'original_df' not in st.session_state:
+        st.session_state.original_df = None
 
     # Upload CSV
     uploaded_file = st.file_uploader("Upload a CSV file containing city distances", type=["csv"])
     
     if uploaded_file:
-        # Load graph from uploaded file
-        st.session_state.graph = load_graph_from_csv(uploaded_file)
-        st.success("Cities and distances loaded successfully!")
+        # Check if it's a new file or the same file
+        if st.session_state.uploaded_file_name != uploaded_file.name:
+            # Load graph from uploaded file
+            st.session_state.graph, st.session_state.original_df = load_graph_from_csv(uploaded_file)
+            st.session_state.uploaded_file_name = uploaded_file.name
+            st.success("Cities and distances loaded successfully!")
 
     # Display graph structure
     if st.checkbox("Display graph structure"):
@@ -105,28 +113,27 @@ def main():
     
     if st.button("Add Edge"):
         if city1 and city2 and distance > 0:
-            # Ensure bidirectional connection
-            st.session_state.graph.setdefault(city1, []).append((city2, distance))
-            st.session_state.graph.setdefault(city2, []).append((city1, distance))
-            st.success("Edge added successfully!")
+            if st.session_state.uploaded_file_name:
+                # Ensure bidirectional connection in graph
+                st.session_state.graph.setdefault(city1, []).append((city2, distance))
+                st.session_state.graph.setdefault(city2, []).append((city1, distance))
+                
+                # Add to DataFrame
+                new_row = pd.DataFrame({
+                    'city1': [city1],
+                    'city2': [city2],
+                    'distance_between': [distance]
+                })
+                st.session_state.original_df = pd.concat([st.session_state.original_df, new_row], ignore_index=True)
+                
+                # Save to the original file
+                st.session_state.original_df.to_csv(st.session_state.uploaded_file_name, index=False)
+                
+                st.success("Edge added successfully and saved to the original CSV!")
+            else:
+                st.error("Please upload a CSV file first.")
         else:
             st.error("Please fill out all fields correctly.")
-
-    # Save graph to CSV
-    if st.button("Save to CSV"):
-        if st.session_state.graph:
-            output_data = []
-            for city, neighbors in st.session_state.graph.items():
-                for neighbor, dist in neighbors:
-                    # Avoid duplicate edges
-                    if {city, neighbor} not in [{row['city1'], row['city2']} for row in output_data]:
-                        output_data.append({"city1": city, "city2": neighbor, "distance_between": dist})
-            
-            output_df = pd.DataFrame(output_data)
-            output_df.to_csv("updated_cities_distances.csv", index=False)
-            st.success("Graph saved to updated_cities_distances.csv")
-        else:
-            st.error("No graph to save. Please add edges first.")
 
 # Run the Streamlit app
 if __name__ == "__main__":
