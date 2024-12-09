@@ -58,7 +58,7 @@ def load_graph_from_csv(file):
 
 # Streamlit app
 def main():
-    st.title("City Graph Manager")
+    st.title("Best Path Finder")
 
     # Initialize session state for graph and file
     if 'graph' not in st.session_state:
@@ -69,7 +69,7 @@ def main():
         st.session_state.original_df = None
 
     # Upload CSV
-    uploaded_file = st.file_uploader("Upload a CSV file containing city distances", type=["csv"])
+    uploaded_file = st.file_uploader("Upload a CSV file containing cities and distances (city1, city2, Distance)", type=["csv"])
     
     if uploaded_file:
         # Check if it's a new file or the same file
