@@ -2,102 +2,104 @@ import streamlit as st
 import pandas as pd
 import networkx as nx
 from heapq import heappop, heappush
+import os
 
-# Helper functions for A* algorithm
-def a_star(graph, start, goal):
-    if start not in graph or goal not in graph:
-        return [], -1
+# Load and save CSV functions
+def load_graph_from_csv(file_path):
+    if not os.path.exists(file_path):
+        return nx.Graph()
+    df = pd.read_csv(file_path)
+    G = nx.Graph()
+    for _, row in df.iterrows():
+        G.add_edge(row['city1'], row['city2'], weight=row['distance_between'])
+    return G
 
-    open_set = []
-    heappush(open_set, (0, start))
+def save_graph_to_csv(file_path, G):
+    edges = [
+        {'city1': u, 'city2': v, 'distance_between': d['weight']}
+        for u, v, d in G.edges(data=True)
+    ]
+    df = pd.DataFrame(edges)
+    df.to_csv(file_path, index=False)
+
+# Shortest path function using A* algorithm
+def a_star_shortest_path(G, start, goal):
+    if start not in G or goal not in G:
+        return None, float('inf')
+
+    open_set = [(0, start)]
     came_from = {}
-    g_score = {node: float('inf') for node in graph}
+    g_score = {node: float('inf') for node in G.nodes}
     g_score[start] = 0
-
+    
     while open_set:
         _, current = heappop(open_set)
 
         if current == goal:
             path = []
-            total_distance = g_score[goal]
-            while current:
+            while current in came_from:
                 path.append(current)
-                current = came_from.get(current)
-            return path[::-1], total_distance
+                current = came_from[current]
+            path.append(start)
+            path.reverse()
+            return path, g_score[goal]
 
-        for neighbor, weight in graph[current]:
-            tentative_g_score = g_score[current] + weight
+        for neighbor, edge_attr in G[current].items():
+            tentative_g_score = g_score[current] + edge_attr['weight']
             if tentative_g_score < g_score[neighbor]:
                 came_from[neighbor] = current
                 g_score[neighbor] = tentative_g_score
-                heappush(open_set, (tentative_g_score, neighbor))
+                heappush(open_set, (g_score[neighbor], neighbor))
 
-    return [], -1
+    return None, float('inf')
 
-# Load graph from CSV file
-def load_graph_from_csv(file):
-    df = pd.read_csv(file)
-    graph = {}
-    for _, row in df.iterrows():
-        city1, city2, distance = row['city1'], row['city2'], row['distance_between']
-        graph.setdefault(city1, []).append((city2, distance))
-        graph.setdefault(city2, []).append((city1, distance))
-    return graph
-
-# Streamlit app
+# Main Streamlit app
 st.title("City Graph Manager")
 
-# Upload CSV
-uploaded_file = st.file_uploader("Upload a CSV file containing city distances", type=["csv"])
+# File paths
+csv_file = "cities_distances.csv"
 
-if uploaded_file:
-    graph = load_graph_from_csv(uploaded_file)
-    st.success("Cities and distances loaded successfully!")
+# Load the graph
+G = load_graph_from_csv(csv_file)
 
-    # Display graph structure
-    if st.checkbox("Display graph structure"):
-        st.subheader("Graph Structure")
-        for city, neighbors in graph.items():
-            neighbors_str = ", ".join([f"{neighbor} ({dist} km)" for neighbor, dist in neighbors])
-            st.write(f"{city} -> {neighbors_str}")
+# Menu options
+menu = ["Find Shortest Path", "Display Graph Structure", "Add New Edge"]
+choice = st.sidebar.selectbox("Menu", menu)
 
-    # Find shortest path
-    st.subheader("Find Shortest Path")
+if choice == "Find Shortest Path":
+    st.header("Find Shortest Path Between Cities")
+    
     start_city = st.text_input("Enter starting city:")
-    destination_city = st.text_input("Enter destination city:")
+    goal_city = st.text_input("Enter destination city:")
 
     if st.button("Find Path"):
-        if start_city and destination_city:
-            path, distance = a_star(graph, start_city, destination_city)
+        if start_city and goal_city:
+            path, distance = a_star_shortest_path(G, start_city, goal_city)
             if path:
-                st.success(f"Shortest path: {' -> '.join(path)}")
-                st.success(f"Total distance: {distance} km")
+                st.success(f"Shortest path: {' -> '.join(path)}\nTotal distance: {distance:.2f} km")
             else:
-                st.error("Path not found!")
+                st.error("No path found between the cities.")
         else:
-            st.error("Please enter both starting and destination cities.")
+            st.error("Please provide both starting and destination cities.")
 
-    # Add new edge
-    st.subheader("Add New Edge")
-    city1 = st.text_input("City 1:")
-    city2 = st.text_input("City 2:")
-    distance = st.number_input("Distance (in km):", min_value=0.0, format="%.2f")
+elif choice == "Display Graph Structure":
+    st.header("Graph Structure")
+    st.write("Nodes (Cities):", list(G.nodes))
+    st.write("Edges (Connections):")
+    for u, v, d in G.edges(data=True):
+        st.write(f"{u} <-> {v} ({d['weight']} km)")
+
+elif choice == "Add New Edge":
+    st.header("Add New Edge")
+
+    city1 = st.text_input("Enter the first city:")
+    city2 = st.text_input("Enter the second city:")
+    distance = st.number_input("Enter distance between them (in km):", min_value=0.0, step=0.1)
 
     if st.button("Add Edge"):
         if city1 and city2 and distance > 0:
-            graph.setdefault(city1, []).append((city2, distance))
-            graph.setdefault(city2, []).append((city1, distance))
-            st.success("Edge added successfully!")
+            G.add_edge(city1, city2, weight=distance)
+            save_graph_to_csv(csv_file, G)
+            st.success(f"Edge added between {city1} and {city2} with distance {distance} km. Changes saved to CSV.")
         else:
-            st.error("Please fill out all fields correctly.")
-
-    # Save graph to CSV
-    if st.button("Save to CSV"):
-        output_data = []
-        for city, neighbors in graph.items():
-            for neighbor, dist in neighbors:
-                if {city, neighbor} not in [{row['city1'], row['city2']} for row in output_data]:
-                    output_data.append({"city1": city, "city2": neighbor, "distance_between": dist})
-        output_df = pd.DataFrame(output_data)
-        output_df.to_csv("updated_cities_distances.csv", index=False)
-        st.success("Graph saved to updated_cities_distances.csv")
+            st.error("Please provide valid inputs for both cities and distance.")
